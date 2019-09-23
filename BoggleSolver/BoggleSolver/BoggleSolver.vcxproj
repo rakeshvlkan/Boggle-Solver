@@ -148,9 +148,11 @@
   <ItemGroup>
     <ClCompile Include="boggleSolver.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Results.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="boggleSolver.h" />
+    <ClInclude Include="Results.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

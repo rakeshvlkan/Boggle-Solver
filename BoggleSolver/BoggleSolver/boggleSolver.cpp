@@ -1,7 +1,79 @@
 #include "boggleSolver.h"
 
-// Insert the words into trie
-void BoggleSolver::insertToTrie(const std::unique_ptr<Trie> & trie, const std::string & key) {
+template<typename T, typename... Args>
+std::unique_ptr<T> make_unique(Args&&... args) {
+	return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+}
+
+class BoggleImpl
+{
+
+public:
+	BoggleImpl(const char* dictPath) : m_dictionaryPath(dictPath)
+	{
+	}
+
+	~BoggleImpl()
+	{
+		m_dictionaryTree.reset();
+	}
+
+	Results FindWords(const char* board, unsigned width, unsigned height);
+
+private:
+
+	// enum for word match
+	enum match_word { partial_match, full_match, no_match };
+
+	// grid node type
+	enum nodeType { empty, used };
+
+	// Trie datastructure indicating if current node is an ending of a word and map to next nodes
+	struct Trie {
+		std::unique_ptr<Trie> childs[26];
+		bool leaf;
+	};
+
+	// board states are pushed into queue and processed one by one. nextIndex points to the next board char for a word
+	struct BoardState {
+		std::vector<bool> IsVisited;
+		std::string word;
+		Trie * startingNode;
+		bool IsQNode;	// used for 'q' -> 'qu' checking as matchPath checks the last symbol
+		int nextIndex;
+	};
+
+	const char* m_dictionaryPath;
+	std::unique_ptr<Trie> m_dictionaryTree;	
+
+	// Array of Possible neighbours in a grid
+	const int m_neighbourIndices[8][2] = {
+		{ 1, 0 },
+		{ -1, 0 },
+		{ 0, 1 },
+		{ 0,-1 },
+		{ 1, 1 },
+		{ 1,-1 },
+		{ -1, 1 },
+		{ -1,-1 }
+	};
+
+private:
+	void insertToTrie(const std::unique_ptr<Trie> & trie, const std::string & key);
+	void prepareQueue(std::queue<BoardState> & queue, const char * board, unsigned width, unsigned height);
+	unsigned int getScore(const std::string & word);
+	bool isEmptyNode(int x, int y, int width, int height, const BoardState & node);
+	bool isEmptyNode(int x, int y, int xmove, int ymove, int width, int height, const BoardState & node);
+	match_word matchChar(char c, BoardState & node);
+	match_word matchPath(BoardState & node);
+	void processNeighbourNodes(int width, int height, const BoardState & node, std::queue<BoardState> & queue);
+	void processQnode(const BoardState & node, std::queue<BoardState> & queue);
+	void LoadDictionary();		
+};
+
+
+void BoggleImpl::insertToTrie(const std::unique_ptr<BoggleImpl::Trie>& trie, const std::string & key)
+{
 	Trie * root = trie.get();
 
 	for (const auto symbol : key) {
@@ -9,6 +81,7 @@ void BoggleSolver::insertToTrie(const std::unique_ptr<Trie> & trie, const std::s
 
 		// if key exists, we change the current root, elsewise construct a new record
 		auto c = char_int(symbol);
+
 		if (root->childs[c]) {
 			root = root->childs[c].get();
 		}
@@ -21,43 +94,8 @@ void BoggleSolver::insertToTrie(const std::unique_ptr<Trie> & trie, const std::s
 	root->leaf = true;
 }
 
-BoggleSolver::BoggleSolver()
+void BoggleImpl::prepareQueue(std::queue<BoardState>& queue, const char * board, unsigned width, unsigned height)
 {
-}
-
-// Load all the words fron dictionary and add them into the trie
-void BoggleSolver::LoadDictionary(const char * path) {
-	m_dictionaryTree = make_unique<Trie>();
-
-	std::ifstream dictionary(path);
-	std::string word;
-
-	while (std::getline(dictionary, word)) {
-		insertToTrie(m_dictionaryTree, word);
-	}
-}
-
-// Delete contents from dictionary tree
-void BoggleSolver::FreeDictionary() {
-	m_dictionaryTree.reset();
-}
-
-BoggleSolver::~BoggleSolver()
-{
-}
-
-// Delete the words 
-void BoggleSolver::FreeWords(Results results) {
-	for (unsigned int i = 0; i < results.Count; i++) {
-		delete[] results.Words[i];
-	}
-
-	delete[] results.Words;
-}
-
-// Queue preparation consists of clearing passed queue and initializing the queue with needed elements for propagation
-void BoggleSolver::prepareQueue(std::queue<BoardState> & queue, const char * board, unsigned width, unsigned height) {
-	
 	// Clear the queue
 	std::queue<BoardState> empty;
 	std::swap(queue, empty);
@@ -72,8 +110,25 @@ void BoggleSolver::prepareQueue(std::queue<BoardState> & queue, const char * boa
 	}
 }
 
-// Check if node is within the matrix bounds and not visited
-bool BoggleSolver::isEmptyNode(int x, int y, int width, int height, const BoardState & node) {
+unsigned int BoggleImpl::getScore(const std::string & word)
+{
+	std::size_t len = word.length();
+
+	if (len < MIN_WORD_SIZE) return 0;
+
+	switch (len) {
+	case 3: return 1; break;
+	case 4: return 1; break;
+	case 5: return 2; break;
+	case 6: return 3; break;
+	case 7: return 5; break;
+
+	default: return 11;
+	}
+}
+
+bool BoggleImpl::isEmptyNode(int x, int y, int width, int height, const BoardState & node)
+{
 	int index = y*width + x;
 
 	return (
@@ -85,12 +140,13 @@ bool BoggleSolver::isEmptyNode(int x, int y, int width, int height, const BoardS
 		);
 }
 
-bool BoggleSolver::isEmptyNode(int x, int y, int xmove, int ymove, int width, int height, const BoardState & node) {
+bool BoggleImpl::isEmptyNode(int x, int y, int xmove, int ymove, int width, int height, const BoardState & node)
+{
 	return isEmptyNode(x + xmove, y + ymove, width, height, node);
 }
 
-// Checks whether current char matches with current Trie node
-match_word BoggleSolver::matchChar(char c, BoardState & node) {
+BoggleImpl::match_word BoggleImpl::matchChar(char c, BoardState & node)
+{
 	Trie * root = node.startingNode;
 
 	if (root->childs[c]) {
@@ -108,8 +164,8 @@ match_word BoggleSolver::matchChar(char c, BoardState & node) {
 	return partial_match;
 }
 
-// traverse the tree until the last symbol of a node and check if its a word
-match_word BoggleSolver::matchPath(BoardState & node) {
+BoggleImpl::match_word BoggleImpl::matchPath(BoardState & node)
+{
 	Trie * root = node.startingNode;
 
 	// check 'q' node here and 'u' later on
@@ -127,8 +183,8 @@ match_word BoggleSolver::matchPath(BoardState & node) {
 	return matchChar(c, node);
 }
 
-// process neighbour nodes and if they are good candidate then push into a queue for later processing
-void BoggleSolver::processNeighbourNodes(int width, int height, const BoardState & node, std::queue<BoardState> & queue) {
+void BoggleImpl::processNeighbourNodes(int width, int height, const BoardState & node, std::queue<BoardState>& queue)
+{
 	for (unsigned i = 0; i < 8; i++) {
 		int x = node.nextIndex % width;
 		int y = node.nextIndex / width;
@@ -144,8 +200,8 @@ void BoggleSolver::processNeighbourNodes(int width, int height, const BoardState
 	}
 }
 
-// clone the passed 'q' node, make it 'u' node and push it to queue
-void BoggleSolver::processQnode(const BoardState & node, std::queue<BoardState> & queue) {
+void BoggleImpl::processQnode(const BoardState & node, std::queue<BoardState>& queue)
+{
 	BoardState quState = node;
 	quState.IsQNode = true;
 	quState.word += 'u';
@@ -153,51 +209,26 @@ void BoggleSolver::processQnode(const BoardState & node, std::queue<BoardState> 
 	queue.push(quState);
 }
 
-unsigned int BoggleSolver::getScore(const std::string & word) {
-	std::size_t len = word.length();
+// Load all the words fron dictionary and add them into the trie
+void BoggleImpl::LoadDictionary() {
+	m_dictionaryTree = make_unique<Trie>();
 
-	if (len < MIN_WORD_SIZE) return 0;
+	std::ifstream dictionary(m_dictionaryPath);
+	std::string word;
 
-	switch (len) {
-	case 3: return 1; break;
-	case 4: return 1; break;
-	case 5: return 2; break;
-	case 6: return 3; break;
-	case 7: return 5; break;
-
-	default: return 11;
+	while (std::getline(dictionary, word)) {
+		insertToTrie(m_dictionaryTree, word);
 	}
-}
-
-// Merge all the results into Results structure. Update the count and score
-void BoggleSolver::mergeResults(Results & results, const std::unordered_set<std::string> & foundWords) 
-{
-	
-	char ** ptrWords = new char *[foundWords.size()];
-	int index = 0;
-
-	for (auto word : foundWords) {
-		results.Count++;
-		results.Score += getScore(word);
-
-		char * copy = new char[word.length() + 1];
-		strcpy(copy, word.c_str());
-
-		ptrWords[index++] = copy;
-	}
-	results.Words = ptrWords;
 }
 
 /*  Process the queue until it's empty, each time taking a node then
-    checking each neighbour if it's a valid word and not used path and then add it
-    to queue for processing. if a letter 'q' is found then a copy of current node is made and 'u' is
-    added so to find the 'QUAD' in 'QAD'
+checking each neighbour if it's a valid word and not used path and then add it
+to queue for processing. if a letter 'q' is found then a copy of current node is made and 'u' is
+added so to find the 'QUAD' in 'QAD'
 */
-Results BoggleSolver::FindWords(const char * board, unsigned width, unsigned height) {
-	Results results = {};
-	results.Score = 0;
-	results.Count = 0;
-
+Results BoggleImpl::FindWords(const char * board, unsigned width, unsigned height) {
+	Results results;
+	LoadDictionary();
 	std::queue<BoardState> queue;
 	std::unordered_set<std::string> foundWords;
 	prepareQueue(queue, board, width, height);
@@ -232,7 +263,23 @@ Results BoggleSolver::FindWords(const char * board, unsigned width, unsigned hei
 		}
 	}
 
-	mergeResults(results, foundWords);
+	results.ComputeScore(foundWords);
 
 	return results;
+}
+
+BoggleSolver::BoggleSolver(const char * dictionaryPath) : boggleImpl(new BoggleImpl(dictionaryPath))
+{
+}
+
+BoggleSolver::BoggleSolver(BoggleSolver &&) noexcept = default;
+BoggleSolver& BoggleSolver::operator=(BoggleSolver &&) noexcept = default;
+
+Results BoggleSolver::FindWords(const char * board, unsigned width, unsigned height)
+{  
+	return boggleImpl->FindWords(board, width, height);
+}
+
+BoggleSolver::~BoggleSolver()
+{
 }

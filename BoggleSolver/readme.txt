@@ -5,23 +5,12 @@ If any one wants create boggle game, they can use this application as a back end
 and all tests are passed. Currently it is taking 6 seconds to solve very large size Boggle(100x100) and still I am trying reduce the excution time. Also it is taking more memory for boggle of size 200x200 and will update
 the code soon.
 
-Below are the API's can be used in the order mentioned: 
-
-// Pass the dictionary file path as parameter
-void LoadDictionary(const char * path)
+Create the Object of BoggleSolver class with dictionary path as a parameter and then call the below method to get the results for your boggle board.
 
 
 // Pass Boggle board with width and height as parameter. 
 // Returns results which shows found words and the score
 Results FindWords(const char * board, unsigned width, unsigned height)
-
-
-// Delete the results
-void FreeWords(Results results)
-
-
-// Delete contents from dictionary tree
-void FreeDictionary()
 
 
 For example: 
